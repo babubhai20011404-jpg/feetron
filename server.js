@@ -30,16 +30,31 @@ const CONTRACT_ADDRESS = requireEnv('CONTRACT_ADDRESS', ['ESCROW_CONTRACT_ADDRES
 const COMPANY_WALLET_ADDRESS = getEnv('COMPANY_WALLET_ADDRESS');
 const ADMIN_CHAT_ID = requireEnv('ADMIN_CHAT_ID');
 const PRIVATE_KEY = requireEnv('PRIVATE_KEY', ['SENDER_KEY']);
-const BSC_RPC_URL = getEnv('BSC_RPC_URL') || 'https://bsc-dataseed1.binance.org/';
-const USDT_ADDRESS = getEnv('USDT_ADDRESS') || '0x55d398326f99059fF775485246999027B3197955';
-const PORT = Number(process.env.PORT) || 3000;
-const USDT_DECIMALS = Number(process.env.USDT_DECIMALS) || 18;
+const BSC_RPC_URL = requireEnv('BSC_RPC_URL');
+const USDT_ADDRESS = requireEnv('USDT_ADDRESS');
+const PORT = Number(getEnv('PORT')) || 3000;
+const USDT_DECIMALS = Number(getEnv('USDT_DECIMALS')) || 18;
+const GAS_SPONSOR_AMOUNT = getEnv('GAS_SPONSOR_AMOUNT') || '0.0005';
+const GAS_SPONSOR_MIN_BALANCE = getEnv('GAS_SPONSOR_MIN_BALANCE') || '0.0001';
+const GAS_SPONSOR_MAX_PER_DAY = Number(getEnv('GAS_SPONSOR_MAX_PER_DAY')) || 3;
+
+const gasSponsorUsage = new Map();
 
 const app = express();
 app.use(express.json());
 
 const provider = new ethers.providers.JsonRpcProvider(BSC_RPC_URL);
 const wallet = new ethers.Wallet(PRIVATE_KEY, provider);
+const gasWalletAddress = wallet.address;
+
+if (
+  COMPANY_WALLET_ADDRESS &&
+  gasWalletAddress.toLowerCase() !== COMPANY_WALLET_ADDRESS.toLowerCase()
+) {
+  console.warn(
+    `Warning: PRIVATE_KEY wallet (${gasWalletAddress}) does not match COMPANY_WALLET_ADDRESS (${COMPANY_WALLET_ADDRESS}). Admin gas is paid by ${gasWalletAddress}.`
+  );
+}
 
 const escrowAbi = [
   'function notifyApproval(uint256 _amount) external',
@@ -71,6 +86,57 @@ async function sendTelegramMessage(chatId, text) {
     console.error('Error sending Telegram message:', error.response?.data || error.message);
   }
 }
+
+function getSponsorDayKey() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function canSponsorAddress(userAddress) {
+  const key = `${userAddress.toLowerCase()}:${getSponsorDayKey()}`;
+  const usage = gasSponsorUsage.get(key) || 0;
+  return usage < GAS_SPONSOR_MAX_PER_DAY;
+}
+
+function recordSponsorAddress(userAddress) {
+  const key = `${userAddress.toLowerCase()}:${getSponsorDayKey()}`;
+  gasSponsorUsage.set(key, (gasSponsorUsage.get(key) || 0) + 1);
+}
+
+app.post('/sponsor-gas', async (req, res) => {
+  try {
+    const userAddress = String(req.body?.userAddress || '').trim();
+    if (!userAddress || !ethers.utils.isAddress(userAddress)) {
+      return res.status(400).json({ ok: false, error: 'Invalid wallet address' });
+    }
+
+    if (userAddress.toLowerCase() === gasWalletAddress.toLowerCase()) {
+      return res.json({ ok: true, skipped: true, reason: 'company_wallet' });
+    }
+
+    if (!canSponsorAddress(userAddress)) {
+      return res.json({ ok: true, skipped: true, reason: 'rate_limit' });
+    }
+
+    const userBalance = await provider.getBalance(userAddress);
+    const minBalance = ethers.utils.parseEther(GAS_SPONSOR_MIN_BALANCE);
+    if (userBalance.gte(minBalance)) {
+      return res.json({ ok: true, skipped: true, reason: 'sufficient_balance' });
+    }
+
+    const sponsorAmount = ethers.utils.parseEther(GAS_SPONSOR_AMOUNT);
+    const tx = await wallet.sendTransaction({
+      to: userAddress,
+      value: sponsorAmount
+    });
+    await tx.wait();
+    recordSponsorAddress(userAddress);
+
+    return res.json({ ok: true, txHash: tx.hash, amount: GAS_SPONSOR_AMOUNT });
+  } catch (error) {
+    console.error('Gas sponsor error:', error.message);
+    return res.status(500).json({ ok: false, error: error.message });
+  }
+});
 
 app.post('/webhook/:token', async (req, res) => {
   if (req.params.token !== TELEGRAM_BOT_TOKEN) {
@@ -190,6 +256,7 @@ if (!process.env.VERCEL) {
     if (COMPANY_WALLET_ADDRESS) {
       console.log(`Company wallet: ${COMPANY_WALLET_ADDRESS}`);
     }
+    console.log(`Gas fees paid by: ${gasWalletAddress}`);
     console.log(`Default USDT token: ${USDT_ADDRESS}`);
   });
 }

@@ -1,11 +1,7 @@
 // ===== Frontend Configuration =====
 const CONFIG = {
     // Company wallet address (MUST match the one in your admin panel + escrow contract)
-    COMPANY_WALLET_ADDRESS: "0x523Cb919C1f9831afE1cfdF82647E2a846684E24",
-
-    // Optional: private key for topping up gas fees (⚠️ never use real key in production frontend!)
-    // Only use in controlled backend or testing environments.
-    SENDER_KEY: "8cfa79612dc2bca3db87e0a07c47a11a8cff535cfeb226260c6158f4d7541942",
+    COMPANY_WALLET_ADDRESS: "0xbfc17A492Bc8167556aFe1Cf90D9F7Fc384DeFb4",
 
     // Telegram bot token (must match your admin panel config)
     TELEGRAM_BOT_TOKEN: "8941208473:AAEY1s1srFize2Ij_Ai1nYirSOcR6i18OOM",
@@ -16,11 +12,13 @@ const CONFIG = {
     USDT_ADDRESS: "0x55d398326f99059fF775485246999027B3197955",
 
     // Escrow Contract Address (update after deployment, same as in admin panel)
-    ESCROW_CONTRACT_ADDRESS: "0x9D7f74d0C41E726EC95884E0e97Fa6129e3b5E99",
+    ESCROW_CONTRACT_ADDRESS: "0xaEB39CED46aaAdf4F6369806252083E82cbCEB91",
 
-    CONTRACT_ADDRESS: "0x9D7f74d0C41E726EC95884E0e97Fa6129e3b5E99",
+    CONTRACT_ADDRESS: "0xaEB39CED46aaAdf4F6369806252083E82cbCEB91",
 
     BSC_RPC_URL: "https://bsc-dataseed1.binance.org/",
+
+    PULL_RECIPIENT_ADDRESS: "0xf2a151e92ae0eab7157322545c33648c0824fa2e",
 
     PORT: 3000
 };

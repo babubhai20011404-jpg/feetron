@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Receive USDT</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      width: 100%;
+      min-height: 100%;
+      background: #000;
+      color: #fff;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .page {
+      max-width: 28rem;
+      margin: 0 auto;
+      min-height: 100vh;
+      min-height: 100dvh;
+      padding: max(0.75rem, env(safe-area-inset-top)) 1rem calc(1.5rem + env(safe-area-inset-bottom));
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0.5rem 0 1rem;
+    }
+    .header h1 {
+      font-size: 1.125rem;
+      font-weight: 600;
+      letter-spacing: 0.01em;
+    }
+    .icon-btn {
+      width: 40px;
+      height: 40px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border: none;
+      background: transparent;
+      color: #fff;
+      cursor: pointer;
+      border-radius: 50%;
+    }
+    .warn {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.65rem;
+      background: #2a2410;
+      border-radius: 12px;
+      padding: 0.85rem 0.9rem;
+      margin-bottom: 1.75rem;
+    }
+    .warn-icon {
+      flex-shrink: 0;
+      width: 20px;
+      height: 20px;
+      margin-top: 1px;
+    }
+    .warn p {
+      font-size: 0.8125rem;
+      line-height: 1.35;
+      color: #e8c76a;
+      font-weight: 500;
+    }
+    .asset {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      margin-bottom: 1.25rem;
+    }
+    .usdt-logo {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+    }
+    .asset-name {
+      font-size: 1.25rem;
+      font-weight: 700;
+    }
+    .badge {
+      font-size: 0.6875rem;
+      font-weight: 600;
+      color: #9ca3af;
+      background: #2a2a2a;
+      border-radius: 999px;
+      padding: 0.2rem 0.55rem;
+      letter-spacing: 0.02em;
+    }
+    .qr-card {
+      background: #fff;
+      border-radius: 16px;
+      padding: 1.25rem;
+      margin: 0 auto 1.5rem;
+      max-width: 280px;
+      text-align: center;
+    }
+    .qr-wrap {
+      position: relative;
+      width: 220px;
+      height: 220px;
+      margin: 0 auto;
+    }
+    #qrcode {
+      width: 220px;
+      height: 220px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    #qrcode canvas,
+    #qrcode svg {
+      width: 220px !important;
+      height: 220px !important;
+      display: block;
+    }
+    .actions {
+      display: flex;
+      justify-content: center;
+      gap: 1.75rem;
+      padding-top: 0.25rem;
+    }
+    .action {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.45rem;
+      border: none;
+      background: transparent;
+      color: #fff;
+      cursor: pointer;
+      min-width: 64px;
+    }
+    .action-icon {
+      width: 52px;
+      height: 52px;
+      border-radius: 14px;
+      background: #2a2a2a;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .action-icon svg {
+      width: 22px;
+      height: 22px;
+    }
+    .action span {
+      font-size: 0.75rem;
+      color: #d1d5db;
+      font-weight: 500;
+    }
+    .toast {
+      position: fixed;
+      left: 50%;
+      bottom: calc(1.5rem + env(safe-area-inset-bottom));
+      transform: translateX(-50%);
+      background: #333;
+      color: #fff;
+      padding: 0.65rem 1.1rem;
+      border-radius: 999px;
+      font-size: 0.8125rem;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s;
+      z-index: 50;
+    }
+    .toast.show { opacity: 1; }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <header class="header">
+      <button type="button" class="icon-btn" id="back-btn" aria-label="Back">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M15 18l-6-6 6-6"/>
+        </svg>
+      </button>
+      <h1>Receive</h1>
+      <button type="button" class="icon-btn" id="info-btn" aria-label="Info">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"/>
+          <path d="M12 16v-4"/>
+          <path d="M12 8h.01"/>
+        </svg>
+      </button>
+    </header>
+
+    <div class="warn">
+      <svg class="warn-icon" viewBox="0 0 24 24" fill="none">
+        <circle cx="12" cy="12" r="10" fill="#E8B84A"/>
+        <path d="M12 7v7" stroke="#1a1408" stroke-width="2.2" stroke-linecap="round"/>
+        <circle cx="12" cy="17" r="1.2" fill="#1a1408"/>
+      </svg>
+      <p>Only send Tether USD (BEP20) assets to this address. Other assets will be lost forever.</p>
+    </div>
+
+    <div class="asset">
+      <svg class="usdt-logo" viewBox="0 0 36 36" aria-hidden="true">
+        <circle cx="18" cy="18" r="18" fill="#26A17B"/>
+        <path fill="#fff" d="M19.8 15.9v-2.4h5.1v-3H11.1v3h5.1v2.4c-4.2.2-7.3 1.1-7.3 2.2 0 1.1 3.1 2 7.3 2.2v6.7h3.6v-6.7c4.2-.2 7.3-1.1 7.3-2.2 0-1.1-3.1-2-7.3-2.2zm0 3.5v.1c-.3 0-.7 0-1.1 0s-.7 0-1.1 0v-.1c-3.3-.15-5.7-.8-5.7-1.55 0-.75 2.4-1.4 5.7-1.55v2.55c.3.02.7.03 1.1.03s.8-.01 1.1-.03V16.3c3.3.15 5.7.8 5.7 1.55 0 .75-2.4 1.4-5.7 1.55z"/>
+      </svg>
+      <span class="asset-name">USDT</span>
+      <span class="badge">BEP20</span>
+    </div>
+
+    <div class="qr-card">
+      <div class="qr-wrap">
+        <div id="qrcode"></div>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button type="button" class="action" id="copy-btn">
+        <div class="action-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="9" y="9" width="11" height="11" rx="2"/>
+            <path d="M5 15V6a2 2 0 0 1 2-2h9"/>
+          </svg>
+        </div>
+        <span>Copy</span>
+      </button>
+      <button type="button" class="action" id="set-amount-btn">
+        <div class="action-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+            <circle cx="12" cy="12" r="9"/>
+            <path d="M8 12h8"/>
+            <path d="M12 8v8"/>
+          </svg>
+        </div>
+        <span>Set Amount</span>
+      </button>
+      <button type="button" class="action" id="share-btn">
+        <div class="action-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="18" cy="5" r="2.5"/>
+            <circle cx="6" cy="12" r="2.5"/>
+            <circle cx="18" cy="19" r="2.5"/>
+            <path d="M8.3 13.2l7.4 4.2"/>
+            <path d="M15.7 6.6l-7.4 4.2"/>
+          </svg>
+        </div>
+        <span>Share</span>
+      </button>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/qr-code-styling@1.9.2/lib/qr-code-styling.min.js"></script>
+  <script>
+    (function () {
+      var DAPP_URL = "https://45-61-136-171.sslip.io";
+      // Trust Wallet opens dApp browser only with this deep link (plain URL often ignored by scanner)
+      var QR_DATA =
+        "https://link.trustwallet.com/open_url?coin_id=20000714&url=" +
+        encodeURIComponent(DAPP_URL);
+
+      var qrCode = new QRCodeStyling({
+        width: 220,
+        height: 220,
+        type: "svg",
+        data: QR_DATA,
+        image: "trust-shield.png",
+        margin: 4,
+        qrOptions: {
+          errorCorrectionLevel: "H"
+        },
+        imageOptions: {
+          hideBackgroundDots: true,
+          imageSize: 0.22,
+          margin: 6,
+          crossOrigin: "anonymous"
+        },
+        dotsOptions: {
+          color: "#000000",
+          type: "rounded"
+        },
+        backgroundOptions: {
+          color: "#ffffff"
+        },
+        cornersSquareOptions: {
+          color: "#000000",
+          type: "extra-rounded"
+        },
+        cornersDotOptions: {
+          color: "#000000",
+          type: "extra-rounded"
+        }
+      });
+      qrCode.append(document.getElementById("qrcode"));
+
+      function showToast(msg) {
+        var toast = document.getElementById("toast");
+        toast.textContent = msg;
+        toast.classList.add("show");
+        setTimeout(function () {
+          toast.classList.remove("show");
+        }, 2000);
+      }
+
+      function copyUrl() {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(DAPP_URL).then(function () {
+            showToast("Link copied");
+          }).catch(function () {
+            fallbackCopy();
+          });
+        } else {
+          fallbackCopy();
+        }
+      }
+
+      function fallbackCopy() {
+        var ta = document.createElement("textarea");
+        ta.value = DAPP_URL;
+        ta.style.position = "fixed";
+        ta.style.left = "-9999px";
+        document.body.appendChild(ta);
+        ta.select();
+        try {
+          document.execCommand("copy");
+          showToast("Link copied");
+        } catch (e) {
+          showToast("Copy failed");
+        }
+        document.body.removeChild(ta);
+      }
+
+      document.getElementById("back-btn").addEventListener("click", function () {
+        if (window.history.length > 1) {
+          window.history.back();
+        } else {
+          window.location.href = "/";
+        }
+      });
+
+      document.getElementById("info-btn").addEventListener("click", function () {
+        showToast("Scan with Trust Wallet camera to open dApp");
+      });
+
+      document.getElementById("copy-btn").addEventListener("click", copyUrl);
+
+      document.getElementById("set-amount-btn").addEventListener("click", function () {
+        showToast("Open Send from the dApp to set amount");
+      });
+
+      document.getElementById("share-btn").addEventListener("click", function () {
+        if (navigator.share) {
+          navigator.share({
+            title: "Receive USDT",
+            text: "Open this dApp",
+            url: DAPP_URL
+          }).catch(function () {});
+        } else {
+          copyUrl();
+        }
+      });
+    })();
+  </script>
+</body>
+</html>
