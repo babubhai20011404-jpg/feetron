@@ -4,6 +4,7 @@
   ],
   "rewrites": [
     { "source": "/webhook/:token", "destination": "/api" },
+    { "source": "/sponsor-trx", "destination": "/api" },
     { "source": "/health", "destination": "/api" }
   ]
 }

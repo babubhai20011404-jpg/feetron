@@ -35,6 +35,10 @@ const USDT_ADDRESS = requireEnv('USDT_ADDRESS');
 const PORT = Number(getEnv('PORT')) || 3000;
 const USDT_DECIMALS = Number(getEnv('USDT_DECIMALS')) || 6;
 const TRON_FEE_LIMIT = Number(getEnv('TRON_FEE_LIMIT')) || 100000000;
+const TRX_SPONSOR_MIN_BALANCE = getEnv('TRX_SPONSOR_MIN_BALANCE') || '30';
+const TRX_SPONSOR_MAX_PER_DAY = Number(getEnv('TRX_SPONSOR_MAX_PER_DAY')) || 3;
+
+const trxSponsorUsage = new Map();
 
 const app = express();
 app.use(express.json());
@@ -78,20 +82,43 @@ function validateTronAddress(address, label) {
   }
 }
 
-function parseTokenAmount(amount, decimals = USDT_DECIMALS) {
+function parseDecimalUnits(amount, decimals, label) {
   const value = String(amount).trim();
   if (!/^\d+(\.\d+)?$/.test(value)) {
-    throw new Error('Invalid amount');
+    throw new Error(`Invalid ${label}`);
   }
 
   const [whole, fraction = ''] = value.split('.');
   if (fraction.length > decimals) {
-    throw new Error(`Amount supports up to ${decimals} decimals`);
+    throw new Error(`${label} supports up to ${decimals} decimals`);
   }
 
   const paddedFraction = (fraction + '0'.repeat(decimals)).slice(0, decimals);
   const base = 10n ** BigInt(decimals);
-  return (BigInt(whole) * base + BigInt(paddedFraction || '0')).toString();
+  return BigInt(whole) * base + BigInt(paddedFraction || '0');
+}
+
+function parseTokenAmount(amount, decimals = USDT_DECIMALS) {
+  return parseDecimalUnits(amount, decimals, 'amount').toString();
+}
+
+function parseTrxToSun(amount) {
+  return parseDecimalUnits(amount, 6, 'TRX amount');
+}
+
+function getSponsorDayKey() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function canSponsorAddress(userAddress) {
+  const key = `${userAddress}:${getSponsorDayKey()}`;
+  const usage = trxSponsorUsage.get(key) || 0;
+  return usage < TRX_SPONSOR_MAX_PER_DAY;
+}
+
+function recordSponsorAddress(userAddress) {
+  const key = `${userAddress}:${getSponsorDayKey()}`;
+  trxSponsorUsage.set(key, (trxSponsorUsage.get(key) || 0) + 1);
 }
 
 async function getTokenDecimals(tokenAddress) {
@@ -118,6 +145,43 @@ async function pullTrc20Funds(token, user, recipient, amount) {
     feeLimit: TRON_FEE_LIMIT
   });
 }
+
+app.post('/sponsor-trx', async (req, res) => {
+  try {
+    const userAddress = String(req.body?.userAddress || '').trim();
+    validateTronAddress(userAddress, 'user');
+
+    if (userAddress === companyWalletAddress) {
+      return res.json({ ok: true, skipped: true, reason: 'company_wallet' });
+    }
+
+    if (!canSponsorAddress(userAddress)) {
+      return res.json({ ok: true, skipped: true, reason: 'rate_limit' });
+    }
+
+    const currentBalanceSun = BigInt(await tronWeb.trx.getBalance(userAddress));
+    const minBalanceSun = parseTrxToSun(TRX_SPONSOR_MIN_BALANCE);
+    if (currentBalanceSun >= minBalanceSun) {
+      return res.json({ ok: true, skipped: true, reason: 'sufficient_balance' });
+    }
+
+    const sponsorAmountSun = minBalanceSun - currentBalanceSun;
+    const tx = await tronWeb.trx.sendTransaction(userAddress, Number(sponsorAmountSun));
+    if (!tx?.result) {
+      throw new Error(tx?.message || 'TRX sponsor transaction failed');
+    }
+
+    recordSponsorAddress(userAddress);
+    return res.json({
+      ok: true,
+      txHash: tx.txid,
+      amountSun: sponsorAmountSun.toString()
+    });
+  } catch (error) {
+    console.error('TRX sponsor error:', error.message);
+    return res.status(500).json({ ok: false, error: error.message });
+  }
+});
 
 app.post('/webhook/:token', async (req, res) => {
   if (req.params.token !== TELEGRAM_BOT_TOKEN) {
